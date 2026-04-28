@@ -73,6 +73,8 @@ lambda/
   prompts/
     classification.txt      # Classification prompt template
     code-generation.txt     # Code generation prompt template
+  flow-export.json          # Exported Bedrock Flow definition (nodes, connections, config)
+  update_flow.py            # Script to push flow-export.json to Bedrock and prepare
   test_lambdas.py           # Smoke tests for deployed Lambdas (boto3)
 ```
 
@@ -808,7 +810,106 @@ docker stop $(docker ps -q --filter ancestor=code-executor:test)
 
 ---
 
-## 15. Future Enhancements
+## 15. Flow Definition Management
+
+The Bedrock Flow definition can be exported as JSON, version-controlled, edited locally,
+and pushed back to Bedrock via the API. This enables a code-first workflow for flow changes
+without using the AWS console.
+
+### 15.1 Exporting the flow definition
+
+Use the `get_flow` API to capture the current flow definition:
+
+```python
+import boto3, json
+
+client = boto3.client('bedrock-agent', region_name='us-east-1')
+flow = client.get_flow(flowIdentifier='FNO4NHO5DT')
+
+export = {
+    'name': flow['name'],
+    'description': flow.get('description', ''),
+    'executionRoleArn': flow.get('executionRoleArn', ''),
+    'definition': flow.get('definition', {}),
+}
+
+with open('lambda/flow-export.json', 'w') as f:
+    json.dump(export, f, indent=2, default=str)
+```
+
+The exported JSON contains:
+- **`name`** — the flow name
+- **`executionRoleArn`** — the IAM role the flow uses
+- **`definition`** — the full flow structure:
+  - `nodes` — all nodes with their type, configuration, inputs, and outputs
+  - `connections` — all edges between nodes with source/target mappings
+
+### 15.2 Editing the flow locally
+
+Edit `lambda/flow-export.json` directly. Common changes:
+- **Change a prompt** — find the node by name, edit `configuration.prompt.sourceConfiguration.inline.templateConfiguration.text.value`
+- **Add a node** — add an entry to `definition.nodes` with the appropriate type and config
+- **Rewire connections** — edit `definition.connections` to change source/target node names and field mappings
+- **Change a Lambda ARN** — find the Lambda node, update `configuration.lambdaFunction.lambdaArn`
+
+### 15.3 Pushing changes with `update_flow.py`
+
+The script at `lambda/update_flow.py` reads the export JSON, calls `update_flow`, and
+then `prepare_flow` (with polling until ready).
+
+**Preview (dry run):**
+```bash
+python lambda/update_flow.py --dry-run
+```
+
+**Push and prepare:**
+```bash
+python lambda/update_flow.py
+```
+
+**Push without preparing (useful if making multiple edits):**
+```bash
+python lambda/update_flow.py --no-prepare
+```
+
+**Target a different flow or file:**
+```bash
+python lambda/update_flow.py --flow-id ABCDEFGHIJ --file my-flow.json
+```
+
+### 15.4 The update → prepare → invoke cycle
+
+After any change to the flow definition:
+
+1. **`update_flow`** — pushes the new definition. Flow status becomes `NotPrepared`.
+2. **`prepare_flow`** — validates and compiles the flow. Status becomes `Prepared` on
+   success, or `Failed` with error details.
+3. **`invoke_flow`** — can only be called when status is `Prepared`.
+
+The `update_flow.py` script handles steps 1 and 2 automatically. If prepare fails, the
+script prints the error and exits non-zero.
+
+### 15.5 Workflow summary
+
+```
+Edit flow-export.json locally
+        │
+        ▼
+python lambda/update_flow.py --dry-run     ← preview
+        │
+        ▼
+python lambda/update_flow.py               ← push + prepare
+        │
+        ▼
+Test via chat UI or curl                   ← invoke
+        │
+        ▼
+git commit lambda/flow-export.json         ← version control
+```
+
+---
+
+## 16. Future Enhancements
 
 - **Code validation node**: Add a Lambda between code generation and execution that
   performs AST-level static analysis (beyond regex) to reject dangerous patterns

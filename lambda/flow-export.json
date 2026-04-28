@@ -1,0 +1,347 @@
+{
+  "name": "simple-complex-flow",
+  "description": "",
+  "executionRoleArn": "arn:aws:iam::905418197933:role/service-role/AmazonBedrockExecutionRoleForFlows_YZDJ1G39UL",
+  "definition": {
+    "nodes": [
+      {
+        "name": "FlowInputNode",
+        "type": "Input",
+        "configuration": {
+          "input": {}
+        },
+        "outputs": [
+          {
+            "name": "document",
+            "type": "String"
+          }
+        ]
+      },
+      {
+        "name": "Classification",
+        "type": "Prompt",
+        "configuration": {
+          "prompt": {
+            "sourceConfiguration": {
+              "inline": {
+                "templateType": "TEXT",
+                "templateConfiguration": {
+                  "text": {
+                    "text": "Classify the following user input. Respond with a JSON object containing \"classification\" and \"prompt\" fields.  prompt field contains the value that is the user input.\n\nExamples of classification:\n\"Show me a bar chart of Q1 sales\" \u2192 CHART_REQUEST\n\"What was revenue last month?\" \u2192 DATA_LOOKUP\n\"Compare Q1 vs Q1 last year adjusted for inflation across regions\" \u2192 COMPLEX_ANALYSIS\n\n\nRules:\n- Your response must start with { and end with }\n- No markdown, no code blocks, no backticks, no explanation\n- Output the JSON object and absolutely nothing else\n\nClassify this user input: {{topic}}",
+                    "inputVariables": [
+                      {
+                        "name": "topic"
+                      }
+                    ]
+                  }
+                },
+                "modelId": "arn:aws:bedrock:us-east-1:905418197933:inference-profile/us.amazon.nova-2-lite-v1:0",
+                "inferenceConfiguration": {
+                  "text": {
+                    "temperature": 0.0,
+                    "topP": 1.0,
+                    "maxTokens": 512,
+                    "stopSequences": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        "inputs": [
+          {
+            "name": "topic",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "modelCompletion",
+            "type": "String"
+          }
+        ]
+      },
+      {
+        "name": "FlowOutput_Chart",
+        "type": "Output",
+        "configuration": {
+          "output": {}
+        },
+        "inputs": [
+          {
+            "name": "document",
+            "type": "String",
+            "expression": "$.data.prompt"
+          }
+        ]
+      },
+      {
+        "name": "ConditionNode_1",
+        "type": "Condition",
+        "configuration": {
+          "condition": {
+            "conditions": [
+              {
+                "name": "Condition",
+                "expression": "classification == \"CHART_REQUEST\""
+              },
+              {
+                "name": "default"
+              }
+            ]
+          }
+        },
+        "inputs": [
+          {
+            "name": "classification",
+            "type": "String",
+            "expression": "$.data.classification"
+          }
+        ]
+      },
+      {
+        "name": "LambdaFunctionNode_1",
+        "type": "LambdaFunction",
+        "configuration": {
+          "lambdaFunction": {
+            "lambdaArn": "arn:aws:lambda:us-east-1:905418197933:function:bedrock-flow-json-parser:$LATEST"
+          }
+        },
+        "inputs": [
+          {
+            "name": "codeHookInput",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "functionResponse",
+            "type": "Object"
+          }
+        ]
+      },
+      {
+        "name": "Prompt_Data",
+        "type": "Prompt",
+        "configuration": {
+          "prompt": {
+            "sourceConfiguration": {
+              "inline": {
+                "templateType": "TEXT",
+                "templateConfiguration": {
+                  "text": {
+                    "text": "{{data_prompt}}",
+                    "inputVariables": [
+                      {
+                        "name": "data_prompt"
+                      }
+                    ]
+                  }
+                },
+                "modelId": "arn:aws:bedrock:us-east-1:905418197933:inference-profile/us.anthropic.claude-sonnet-4-6",
+                "inferenceConfiguration": {
+                  "text": {
+                    "temperature": 0.2199999988079071,
+                    "maxTokens": 300,
+                    "stopSequences": [
+                      "\n\nHuman:"
+                    ]
+                  }
+                },
+                "additionalModelRequestFields": {
+                  "top_k": 0.0
+                }
+              }
+            }
+          }
+        },
+        "inputs": [
+          {
+            "name": "data_prompt",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "modelCompletion",
+            "type": "String"
+          }
+        ]
+      },
+      {
+        "name": "FlowOutput_Data",
+        "type": "Output",
+        "configuration": {
+          "output": {}
+        },
+        "inputs": [
+          {
+            "name": "document",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ]
+      },
+      {
+        "name": "Prompt_Chart",
+        "type": "Prompt",
+        "configuration": {
+          "prompt": {
+            "sourceConfiguration": {
+              "inline": {
+                "templateType": "TEXT",
+                "templateConfiguration": {
+                  "text": {
+                    "text": "Generate Python code to fulfill the following request.\nAvailable libraries (pre-installed):\n- matplotlib (use Agg backend \u2014 no plt.show(), only plt.savefig())\n- numpy\n- pandas\nCode requirements:\n- Must be a complete, standalone, executable Python script\n- Print all text output to stdout using print()\n- For charts/plots:\n- Always use: import matplotlib; matplotlib.use('Agg')  \u2014 BEFORE importing pyplot\n- Save charts to /tmp/chart.png (or /tmp/<descriptive_name>.png)\n- Use plt.savefig('/tmp/chart.png', dpi=150, bbox_inches='tight')\n- Do NOT call plt.show() \u2014 it will fail in this environment\n- Always call plt.close() after saving to free memory\n- Use /tmp/ for any file I/O (only writable directory)\n- Handle errors gracefully with try/except\n- Do NOT use input() or any interactive functions\n- Do NOT import os, subprocess, socket, requests, or urllib\nChart style guidelines:\n- Use clear titles and axis labels\n- Use a clean color palette (e.g. tab10 or Set2)\n- Set figure background to white: fig.patch.set_facecolor('#FFFFFF')\n- Add gridlines for readability: ax.yaxis.grid(True, linestyle='--', alpha=0.7)\n- Use plt.tight_layout() before saving\n- Format dollar amounts with $ prefix and commas\nRules:\n- Return ONLY the Python code, nothing else\n- No markdown code blocks, no backticks, no explanation before or after\n- The response must start with an import statement or a comment (#)\n\nRequest:{{code_prompt}}",
+                    "inputVariables": [
+                      {
+                        "name": "code_prompt"
+                      }
+                    ]
+                  }
+                },
+                "modelId": "arn:aws:bedrock:us-east-1:905418197933:inference-profile/us.anthropic.claude-sonnet-4-6",
+                "inferenceConfiguration": {
+                  "text": {
+                    "temperature": 0.18000000715255737,
+                    "maxTokens": 1000,
+                    "stopSequences": [
+                      "\n\nHuman:"
+                    ]
+                  }
+                },
+                "additionalModelRequestFields": {
+                  "top_k": 0.0
+                }
+              }
+            }
+          }
+        },
+        "inputs": [
+          {
+            "name": "code_prompt",
+            "type": "String",
+            "expression": "$.data.prompta"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "modelCompletion",
+            "type": "String"
+          }
+        ]
+      }
+    ],
+    "connections": [
+      {
+        "type": "Data",
+        "name": "FlowInputNodeFlowInputNode0ToClassificationPromptsNode0",
+        "source": "FlowInputNode",
+        "target": "Classification",
+        "configuration": {
+          "data": {
+            "sourceOutput": "document",
+            "targetInput": "topic"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "ClassificationPromptsNode0ToLambdaFunctionNode_1LambdaFunctionNode0",
+        "source": "Classification",
+        "target": "LambdaFunctionNode_1",
+        "configuration": {
+          "data": {
+            "sourceOutput": "modelCompletion",
+            "targetInput": "codeHookInput"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "LambdaFunctionNode_1LambdaFunctionNode0ToConditionNode_1ConditionNode0",
+        "source": "LambdaFunctionNode_1",
+        "target": "ConditionNode_1",
+        "configuration": {
+          "data": {
+            "sourceOutput": "functionResponse",
+            "targetInput": "classification"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "Prompt_DataPromptsNode0ToFlowOutput_DataFlowOutputNode0",
+        "source": "Prompt_Data",
+        "target": "FlowOutput_Data",
+        "configuration": {
+          "data": {
+            "sourceOutput": "modelCompletion",
+            "targetInput": "document"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "Prompt_ChartPromptsNode0ToFlowOutput_ChartFlowOutputNode0",
+        "source": "Prompt_Chart",
+        "target": "FlowOutput_Chart",
+        "configuration": {
+          "data": {
+            "sourceOutput": "modelCompletion",
+            "targetInput": "document"
+          }
+        }
+      },
+      {
+        "type": "Conditional",
+        "name": "ConditionNode_1ConditionNode0ToPrompt_ChartPromptsNode0",
+        "source": "ConditionNode_1",
+        "target": "Prompt_Chart",
+        "configuration": {
+          "conditional": {
+            "condition": "Condition"
+          }
+        }
+      },
+      {
+        "type": "Conditional",
+        "name": "ConditionNode_1ConditionNode1ToPrompt_DataPromptsNode0",
+        "source": "ConditionNode_1",
+        "target": "Prompt_Data",
+        "configuration": {
+          "conditional": {
+            "condition": "default"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "FlowInputNodeFlowInputNode0ToPrompt_DataPromptsNode0",
+        "source": "FlowInputNode",
+        "target": "Prompt_Data",
+        "configuration": {
+          "data": {
+            "sourceOutput": "document",
+            "targetInput": "data_prompt"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "FlowInputNodeFlowInputNode0ToPrompt_ChartPromptsNode0",
+        "source": "FlowInputNode",
+        "target": "Prompt_Chart",
+        "configuration": {
+          "data": {
+            "sourceOutput": "document",
+            "targetInput": "code_prompt"
+          }
+        }
+      }
+    ]
+  }
+}

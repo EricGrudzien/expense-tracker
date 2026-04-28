@@ -600,44 +600,77 @@ def call_bedrock(system_prompt, user_message):
     return response["output"]["message"]["content"][0]["text"]
 
 
-def invoke_bedrock_flow(message):
+def invoke_bedrock_flow(system_prompt, user_message, mode):
     """
     Invoke the Bedrock Flow and collect the streamed response.
+    Sends both the system prompt and user message as a combined document.
+    Logs full trace data to chat.log for debugging.
     Returns the final output document text.
     """
+    combined_input = (
+        f"<system_prompt>\n{system_prompt}\n</system_prompt>\n\n"
+        f"<user_message>\n{user_message}\n</user_message>"
+    )
+
+    chat_logger.info(f"REQUEST | mode={mode} | combined_input={combined_input}")
+
     response = bedrock_agent_client.invoke_flow(
         flowIdentifier=BEDROCK_FLOW_ID,
         flowAliasIdentifier=BEDROCK_FLOW_ALIAS,
         inputs=[{
-            "content": {"document": message},
+            "content": {"document": combined_input},
             "nodeName": "FlowInputNode",
             "nodeOutputName": "document",
         }],
-        enableTrace=False,
+        enableTrace=True,
     )
 
-    # The response is a stream — collect all events
+    # The response is a stream — collect output and trace events
     result_text = None
+    traces = []
+
     for event in response["responseStream"]:
-        if "flowOutputEvent" in event:
+        if "flowTraceEvent" in event:
+            trace = event["flowTraceEvent"].get("trace", {})
+            traces.append(trace)
+
+            # Log each trace node as it arrives
+            if "nodeInputTrace" in trace:
+                t = trace["nodeInputTrace"]
+                chat_logger.info(
+                    f"TRACE INPUT  | node={t.get('nodeName')} | timestamp={t.get('timestamp')}"
+                    f" | fields={json.dumps(t.get('fields', []), default=str)}"
+                )
+            elif "nodeOutputTrace" in trace:
+                t = trace["nodeOutputTrace"]
+                chat_logger.info(
+                    f"TRACE OUTPUT | node={t.get('nodeName')} | timestamp={t.get('timestamp')}"
+                    f" | fields={json.dumps(t.get('fields', []), default=str)}"
+                )
+
+        elif "flowOutputEvent" in event:
             content = event["flowOutputEvent"].get("content", {})
             doc = content.get("document")
             if doc is not None:
                 result_text = doc if isinstance(doc, str) else json.dumps(doc, default=str)
+
         elif "flowCompletionEvent" in event:
-            pass  # flow finished
+            completion = event["flowCompletionEvent"].get("completionReason", "UNKNOWN")
+            chat_logger.info(f"TRACE COMPLETE | reason={completion}")
+
+    chat_logger.info(f"FLOW RESULT | nodes_traced={len(traces)} | output_length={len(result_text) if result_text else 0}")
 
     return result_text
 
 
-def chat_via_model(message):
+def chat_via_model(message, mode):
     """Original two-call Bedrock model path: generate SQL → execute → format answer."""
     with get_db() as conn:
-        # Step 1: Ask Bedrock to generate SQL
         system_prompt = build_chat_system_prompt(conn)
         raw_response = call_bedrock(system_prompt, message)
 
-        # Step 2: Extract and validate SQL
+        chat_logger.info(f"REQUEST | mode={mode} | system_prompt={system_prompt}")
+
         sql = extract_sql(raw_response)
         if sql is None:
             return {"answer": raw_response, "sql": None, "data": None}
@@ -646,7 +679,6 @@ def chat_via_model(message):
         if err:
             return {"error": f"Generated query was rejected: {err}"}, 400
 
-        # Step 3: Execute SQL (read-only)
         try:
             read_conn = sqlite3.connect(DB_PATH, timeout=5)
             read_conn.row_factory = sqlite3.Row
@@ -656,7 +688,6 @@ def chat_via_model(message):
         except Exception as sql_err:
             return {"error": f"Query execution failed: {sql_err}", "sql": sql, "data": None}, 400
 
-        # Step 4: Ask Bedrock to format the answer
         format_prompt = (
             "You are a helpful assistant. The user asked a question about their expenses. "
             "A SQL query was run and produced the results below. "
@@ -675,14 +706,16 @@ def chat_via_model(message):
         return {"answer": answer, "sql": sql, "data": results}
 
 
-def chat_via_flow(message):
-    """Bedrock Flow path: send message to the flow and return the result."""
-    result_text = invoke_bedrock_flow(message)
+def chat_via_flow(message, mode):
+    """Bedrock Flow path: build the same system prompt, send to the flow."""
+    with get_db() as conn:
+        system_prompt = build_chat_system_prompt(conn)
+
+    result_text = invoke_bedrock_flow(system_prompt, message, mode)
 
     if result_text is None:
         return {"error": "No response received from Bedrock Flow"}, 500
 
-    # Try to parse as JSON (the flow may return structured output)
     try:
         parsed = json.loads(result_text)
         if isinstance(parsed, dict):
@@ -694,7 +727,6 @@ def chat_via_flow(message):
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Plain text response from the flow
     return {"answer": result_text, "sql": None, "data": None}
 
 
@@ -715,11 +747,11 @@ def chat():
         if USE_BEDROCK_FLOW:
             if not bedrock_agent_client:
                 return jsonify({"error": "Chat is unavailable — Bedrock agent client not configured"}), 503
-            result = chat_via_flow(message)
+            result = chat_via_flow(message, mode)
         else:
             if not bedrock_client:
                 return jsonify({"error": "Chat is unavailable — Bedrock client not configured"}), 503
-            result = chat_via_model(message)
+            result = chat_via_model(message, mode)
 
         # Handle tuple returns (response, status_code) for errors
         if isinstance(result, tuple):
