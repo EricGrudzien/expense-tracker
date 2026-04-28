@@ -72,7 +72,7 @@
           {
             "name": "document",
             "type": "String",
-            "expression": "$.data.prompt"
+            "expression": "$.data"
           }
         ]
       },
@@ -180,7 +180,7 @@
         "inputs": [
           {
             "name": "document",
-            "type": "String",
+            "type": "Object",
             "expression": "$.data"
           }
         ]
@@ -224,13 +224,36 @@
           {
             "name": "code_prompt",
             "type": "String",
-            "expression": "$.data.prompta"
+            "expression": "$.data"
           }
         ],
         "outputs": [
           {
             "name": "modelCompletion",
             "type": "String"
+          }
+        ]
+      },
+      {
+        "name": "InlineCode_Transform_Data",
+        "type": "InlineCode",
+        "configuration": {
+          "inlineCode": {
+            "code": "import re\n\ndef __func():\n    text = variable\n    cleaned = re.sub(r'^```(?:sql)?\\s*\\n?', '', text.strip())\n    cleaned = re.sub(r'\\n?```\\s*$', '', cleaned)\n    return {\"response\": cleaned, \"type\": \"sql_query\"}\n\n__func()\n",
+            "language": "Python_3"
+          }
+        },
+        "inputs": [
+          {
+            "name": "variable",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "response",
+            "type": "Object"
           }
         ]
       }
@@ -269,18 +292,6 @@
           "data": {
             "sourceOutput": "functionResponse",
             "targetInput": "classification"
-          }
-        }
-      },
-      {
-        "type": "Data",
-        "name": "Prompt_DataPromptsNode0ToFlowOutput_DataFlowOutputNode0",
-        "source": "Prompt_Data",
-        "target": "FlowOutput_Data",
-        "configuration": {
-          "data": {
-            "sourceOutput": "modelCompletion",
-            "targetInput": "document"
           }
         }
       },
@@ -339,6 +350,30 @@
           "data": {
             "sourceOutput": "document",
             "targetInput": "code_prompt"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "Prompt_DataPromptsNode0ToInlineCode_Transform_DataInlineCodeNode0",
+        "source": "Prompt_Data",
+        "target": "InlineCode_Transform_Data",
+        "configuration": {
+          "data": {
+            "sourceOutput": "modelCompletion",
+            "targetInput": "variable"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "InlineCode_Transform_DataInlineCodeNode0ToFlowOutput_DataFlowOutputNode0",
+        "source": "InlineCode_Transform_Data",
+        "target": "FlowOutput_Data",
+        "configuration": {
+          "data": {
+            "sourceOutput": "response",
+            "targetInput": "document"
           }
         }
       }

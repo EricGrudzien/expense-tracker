@@ -75,6 +75,7 @@ lambda/
     code-generation.txt     # Code generation prompt template
   flow-export.json          # Exported Bedrock Flow definition (nodes, connections, config)
   update_flow.py            # Script to push flow-export.json to Bedrock and prepare
+  update_inline_code.py     # Script to update inline code node in flow-export.json
   test_lambdas.py           # Smoke tests for deployed Lambdas (boto3)
 ```
 
@@ -112,6 +113,39 @@ parsing.
 **Decision:** Always use a Lambda cleanup node after prompt nodes that need structured
 output. Both Lambda functions (json-parser and code-executor) strip markdown fences as
 their first step. Cost is negligible (~$0.0000001 per invocation at 128MB/50ms).
+
+### 4.3 Inline code node gotchas
+
+The inline code node runtime has poor error reporting. Key issues to watch for:
+
+**Indentation:** Python's whitespace sensitivity combined with web-based code editors
+is a recipe for invisible bugs. The Bedrock console may strip or convert indentation
+when pasting code. The runtime reports this as "Code execution failed due to runtime
+failure" with no mention of `IndentationError`. Always verify indentation is exactly
+4 spaces per level, no tabs.
+
+**"No function output is captured":** This means the runtime didn't capture a return
+value. Common causes:
+- Bare expression on a line before `return` (the runtime tries to capture it and fails)
+- Missing `__func()` call as the last line
+- Using `event["variable"]` instead of the bare global `variable`
+
+**Correct inline code pattern:**
+```python
+def __func():
+    text = variable
+    result = {"response": text, "type": "sql_query"}
+    return result
+
+__func()
+```
+
+Rules:
+- Input variables are bare globals (named after the node input name, e.g. `variable`)
+- Define a function (convention: `__func()`) with a `return` statement
+- Call the function as the **last line** — that's what the runtime captures
+- No bare expressions before `return`
+- No `event` dict — inputs are globals, not event fields
 
 ### 4.3 Lambda response nesting
 
@@ -814,57 +848,86 @@ docker stop $(docker ps -q --filter ancestor=code-executor:test)
 
 The Bedrock Flow definition can be exported as JSON, version-controlled, edited locally,
 and pushed back to Bedrock via the API. This enables a code-first workflow for flow changes
-without using the AWS console.
+without using the AWS console editor (which has issues with Python indentation).
 
-### 15.1 Exporting the flow definition
+### 15.1 Scripts
 
-Use the `get_flow` API to capture the current flow definition:
+| Script | Purpose |
+|---|---|
+| `lambda/update_flow.py` | Push `flow-export.json` to Bedrock and prepare the flow |
+| `lambda/update_inline_code.py` | Update the inline code node's Python code in `flow-export.json` |
 
-```python
+### 15.2 Exporting the current flow definition
+
+Captures the live flow from Bedrock into `lambda/flow-export.json`:
+
+```bash
+python3 -c "
 import boto3, json
-
 client = boto3.client('bedrock-agent', region_name='us-east-1')
 flow = client.get_flow(flowIdentifier='FNO4NHO5DT')
-
 export = {
     'name': flow['name'],
     'description': flow.get('description', ''),
     'executionRoleArn': flow.get('executionRoleArn', ''),
     'definition': flow.get('definition', {}),
 }
-
 with open('lambda/flow-export.json', 'w') as f:
     json.dump(export, f, indent=2, default=str)
+print('Exported', flow['name'], '-', len(export['definition'].get('nodes',[])), 'nodes')
+"
 ```
+
+**Always re-export before editing** if you've made changes in the console, otherwise
+your local file will overwrite those changes.
 
 The exported JSON contains:
 - **`name`** — the flow name
 - **`executionRoleArn`** — the IAM role the flow uses
-- **`definition`** — the full flow structure:
-  - `nodes` — all nodes with their type, configuration, inputs, and outputs
-  - `connections` — all edges between nodes with source/target mappings
+- **`definition.nodes`** — all nodes with their type, configuration, inputs, and outputs
+- **`definition.connections`** — all edges between nodes with source/target mappings
 
-### 15.2 Editing the flow locally
+### 15.3 Editing the flow locally
 
 Edit `lambda/flow-export.json` directly. Common changes:
-- **Change a prompt** — find the node by name, edit `configuration.prompt.sourceConfiguration.inline.templateConfiguration.text.value`
-- **Add a node** — add an entry to `definition.nodes` with the appropriate type and config
-- **Rewire connections** — edit `definition.connections` to change source/target node names and field mappings
-- **Change a Lambda ARN** — find the Lambda node, update `configuration.lambdaFunction.lambdaArn`
 
-### 15.3 Pushing changes with `update_flow.py`
+| Change | Where in the JSON |
+|---|---|
+| Change a prompt | `nodes[].configuration.prompt.sourceConfiguration.inline.templateConfiguration.text.value` |
+| Change inline code | `nodes[].configuration.inlineCode.code` (or use `update_inline_code.py`) |
+| Change a Lambda ARN | `nodes[].configuration.lambdaFunction.lambdaArn` |
+| Add a node | Add an entry to `definition.nodes` |
+| Rewire connections | Edit `definition.connections` source/target |
 
-The script at `lambda/update_flow.py` reads the export JSON, calls `update_flow`, and
-then `prepare_flow` (with polling until ready).
+### 15.4 Editing inline code nodes
 
-**Preview (dry run):**
+**Do not edit inline code in the Bedrock console.** The console's code editor has
+indentation issues that cause silent Python failures ("runtime failure" with no details).
+
+Instead, edit the code in `lambda/update_inline_code.py` (the `INLINE_CODE` variable)
+and run:
+
 ```bash
-python lambda/update_flow.py --dry-run
+# Step 1: Update the code in flow-export.json
+python lambda/update_inline_code.py
+
+# Step 2: Push to Bedrock and prepare
+python lambda/update_flow.py
 ```
 
-**Push and prepare:**
+The `update_inline_code.py` script writes the Python code as a properly escaped string
+into `flow-export.json`, guaranteeing correct indentation.
+
+### 15.5 Pushing changes to Bedrock
+
+**Full push (update + prepare):**
 ```bash
 python lambda/update_flow.py
+```
+
+**Preview without pushing:**
+```bash
+python lambda/update_flow.py --dry-run
 ```
 
 **Push without preparing (useful if making multiple edits):**
@@ -877,7 +940,7 @@ python lambda/update_flow.py --no-prepare
 python lambda/update_flow.py --flow-id ABCDEFGHIJ --file my-flow.json
 ```
 
-### 15.4 The update → prepare → invoke cycle
+### 15.6 The update → prepare → invoke cycle
 
 After any change to the flow definition:
 
@@ -889,22 +952,57 @@ After any change to the flow definition:
 The `update_flow.py` script handles steps 1 and 2 automatically. If prepare fails, the
 script prints the error and exits non-zero.
 
-### 15.5 Workflow summary
+### 15.7 Gotchas
+
+**"The flow alias is not in prepared state":**
+This error on `invoke_flow` means the flow was modified after the last prepare. Causes:
+- You edited the flow in the console (even clicking into a node can trigger an auto-save)
+- You ran `update_flow.py --no-prepare` and forgot to prepare
+- You invoked too quickly after prepare (brief propagation delay)
+
+Fix: run `python lambda/update_flow.py` to re-prepare, or:
+```bash
+python3 -c "
+import boto3
+client = boto3.client('bedrock-agent', region_name='us-east-1')
+client.prepare_flow(flowIdentifier='FNO4NHO5DT')
+print('Preparing...')
+"
+```
+
+**Console edits vs local edits:**
+If you edit in the console AND locally, they will conflict. The last `update_flow` call
+wins. Always re-export (`§15.2`) before editing locally if you've touched the console.
+
+### 15.8 Complete workflow
 
 ```
-Edit flow-export.json locally
+1. Re-export (if console was used)
+   python3 -c "..." (see §15.2)
         │
         ▼
-python lambda/update_flow.py --dry-run     ← preview
+2. Edit flow-export.json or update_inline_code.py
         │
         ▼
-python lambda/update_flow.py               ← push + prepare
+3. If inline code changed:
+   python lambda/update_inline_code.py
         │
         ▼
-Test via chat UI or curl                   ← invoke
+4. Preview:
+   python lambda/update_flow.py --dry-run
         │
         ▼
-git commit lambda/flow-export.json         ← version control
+5. Push + prepare:
+   python lambda/update_flow.py
+        │
+        ▼
+6. Test via chat UI
+        │
+        ▼
+7. Commit:
+   git add lambda/flow-export.json
+   git commit -m "feat: Update flow definition"
+   git push origin main
 ```
 
 ---
