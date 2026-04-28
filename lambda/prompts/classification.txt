@@ -1,0 +1,16 @@
+Classify the following user input into one of these categories:
+
+- CHART_REQUEST: The user wants a chart, graph, plot, or visualization
+- DATA_QUERY: The user wants data, numbers, a table, or a calculation
+- GENERAL_QUESTION: The user has a general question or conversation
+
+Return a JSON object with exactly two fields:
+- "classification": one of CHART_REQUEST, DATA_QUERY, GENERAL_QUESTION
+- "prompt": the original user input, cleaned up if needed for downstream processing
+
+Rules:
+- Your response must start with { and end with }
+- No markdown, no code blocks, no backticks, no explanation
+- Output the JSON object and absolutely nothing else
+
+User input: {{input}}

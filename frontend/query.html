@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Tracker — Query</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="query.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💸 Expense Tracker</h1>
+      <nav class="page-nav">
+        <a href="index.html" class="nav-tab">Reports</a>
+        <a href="query.html" class="nav-tab nav-tab--active">Query</a>
+        <a href="categories.html" class="nav-tab">Categories</a>
+        <a href="chat.html" class="nav-tab">Chat</a>
+      </nav>
+    </header>
+
+    <!-- Filter panel -->
+    <section class="card">
+      <h2>Query Expenses</h2>
+      <form id="query-form" novalidate autocomplete="off">
+
+        <!-- Result type toggle -->
+        <div class="filter-row">
+          <div class="toggle-group" role="group" aria-label="Result type">
+            <button type="button" class="toggle-btn toggle-btn--active" data-type="sub_expenses">
+              Sub-Expenses
+            </button>
+            <button type="button" class="toggle-btn" data-type="reports">
+              Expense Reports
+            </button>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-row">
+          <!-- Category (sub-expenses only) -->
+          <div class="form-group form-group--grow" id="category-group">
+            <label for="q-category">Category</label>
+            <select id="q-category">
+              <option value="">All categories</option>
+              <!-- populated dynamically from /api/categories -->
+            </select>
+            <span class="field-error"></span>
+          </div>
+
+          <!-- Date from -->
+          <div class="form-group form-group--grow">
+            <label for="q-date-from">From Date</label>
+            <input type="date" id="q-date-from" />
+            <span class="field-error" id="q-date-from-error"></span>
+          </div>
+
+          <!-- Date to -->
+          <div class="form-group form-group--grow">
+            <label for="q-date-to">To Date</label>
+            <input type="date" id="q-date-to" />
+            <span class="field-error" id="q-date-to-error"></span>
+          </div>
+        </div>
+
+        <div id="query-form-error" class="form-error hidden"></div>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn-query-run" id="run-query-btn">Run Query</button>
+          <button type="button" class="btn-secondary" id="clear-btn">Clear</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Results -->
+    <section class="card" id="results-section">
+      <div class="results-header">
+        <h2>Results</h2>
+        <div class="results-meta hidden" id="results-meta">
+          <span id="results-count"></span>
+          <span class="results-total" id="results-total"></span>
+        </div>
+      </div>
+
+      <div id="query-loading" class="loading hidden">Running query…</div>
+      <div id="query-empty" class="empty-state">
+        Set filters above and click "Run Query" to see results.
+      </div>
+
+      <!-- Sub-expense results table -->
+      <div id="sub-results-wrap" class="hidden">
+        <!-- Category breakdown chips -->
+        <div id="breakdown-chips" class="breakdown-chips"></div>
+        <div class="table-wrapper">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Report Date</th>
+                <th>Report</th>
+                <th>Category</th>
+                <th>Note</th>
+                <th class="col-amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="sub-results-body"></tbody>
+            <tfoot>
+              <tr class="results-total-row">
+                <td colspan="4">Total</td>
+                <td id="sub-results-total"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Report results -->
+      <div id="report-results-wrap" class="hidden">
+        <div id="report-results-list"></div>
+        <div class="results-grand-total hidden" id="report-grand-total-row">
+          <span>Grand Total</span>
+          <span id="report-grand-total-value"></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="query.js"></script>
+</body>
+</html>

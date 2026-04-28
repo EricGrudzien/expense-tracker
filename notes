@@ -1,0 +1,10 @@
+The steering doc is now live at 
+expense-tracker.md
+ and will be automatically included in every future session with this workspace. Kiro will use it as context for all decisions — new features, bug fixes, refactors — without you needing to re-explain the app's design.
+
+A few things worth noting about what's captured:
+
+The legacy DB compatibility section (§4.1/4.2, §11) is particularly important — it documents the dual-write requirement for created_at/created_date that caused the sub-expense insert bug, so that pattern won't be repeated if the schema evolves again
+The category list (§5) is the canonical reference — any future addition of a category needs to be updated here, in both the backend SUB_EXPENSE_CATEGORIES list, and the two frontend CATEGORY_META objects
+The card rendering pattern (§8.5) and bulk save decision (§11) capture the non-obvious architectural choices that would be easy to get wrong when adding new features
+If you add significant new features going forward, just ask to update the steering doc and it'll stay current.

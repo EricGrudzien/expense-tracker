@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💸 Expense Tracker</h1>
+      <nav class="page-nav">
+        <a href="index.html" class="nav-tab nav-tab--active">Reports</a>
+        <a href="query.html" class="nav-tab">Query</a>
+        <a href="categories.html" class="nav-tab">Categories</a>
+        <a href="chat.html" class="nav-tab">Chat</a>
+      </nav>
+    </header>
+
+    <!-- Summary bar -->
+    <section class="summary-bar">
+      <div class="summary-item summary-item--primary">
+        <span class="summary-label">Grand Total</span>
+        <span class="summary-value" id="total-amount">$0.00</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Expense Reports</span>
+        <span class="summary-value" id="total-count">0</span>
+      </div>
+    </section>
+
+    <!-- New Expense Report Form -->
+    <section class="card">
+      <h2>New Expense Report</h2>
+      <form id="report-form" novalidate>
+        <div class="form-row">
+          <div class="form-group form-group--grow">
+            <label for="description">Description</label>
+            <input
+              type="text"
+              id="description"
+              placeholder="e.g. Q2 Sales Conference"
+              maxlength="200"
+              required
+            />
+            <span class="field-error" id="description-error"></span>
+          </div>
+          <div class="form-group">
+            <label for="date">Date</label>
+            <input type="date" id="date" required />
+            <span class="field-error" id="date-error"></span>
+          </div>
+        </div>
+        <div id="report-form-error" class="form-error hidden"></div>
+        <button type="submit" id="report-submit-btn">Create Report</button>
+      </form>
+    </section>
+
+    <!-- Expense Reports List -->
+    <section class="card">
+      <h2>Expense Reports</h2>
+      <div id="loading" class="loading hidden">Loading…</div>
+      <div id="empty-state" class="empty-state hidden">
+        No expense reports yet. Create one above!
+      </div>
+      <div id="reports-list"></div>
+    </section>
+  </div>
+
+  <!-- Sub-expense modal -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Sub-Expense</h3>
+        <button class="modal-close" id="modal-close-btn" aria-label="Close">&times;</button>
+      </div>
+      <form id="sub-expense-form" novalidate autocomplete="off">
+        <input type="hidden" id="modal-report-id" />
+        <div class="form-group">
+          <label for="sub-category">Category</label>
+          <select id="sub-category" required>
+            <option value="">— Select a category —</option>
+            <!-- populated dynamically from /api/categories -->
+          </select>
+          <span class="field-error" id="sub-category-error"></span>
+        </div>
+        <div class="form-group">
+          <label for="sub-note">Note <span class="optional">(optional)</span></label>
+          <input type="text" id="sub-note" placeholder="e.g. Flight to NYC" maxlength="200" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="sub-amount">Amount ($)</label>
+          <input type="number" id="sub-amount" placeholder="0.00" min="0.01" step="0.01" required />
+          <span class="field-error" id="sub-amount-error"></span>
+        </div>
+        <div id="sub-form-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" id="sub-submit-btn">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

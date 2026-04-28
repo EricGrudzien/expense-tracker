@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+*.pem
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# AWS
+.aws-sam/

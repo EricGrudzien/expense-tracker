@@ -1,0 +1,101 @@
+/* ── Categories page specific styles ────────────────────────────────────── */
+
+.field-hint {
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.form-group--icon {
+  flex: 0 0 90px;
+}
+
+/* Category row */
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.cat-row:last-child {
+  border-bottom: none;
+}
+
+.cat-slug {
+  flex: 0 0 140px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.82rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cat-icon-field {
+  flex: 0 0 60px;
+}
+
+.cat-icon-field input {
+  text-align: center;
+  padding: 7px 4px;
+  font-size: 1.1rem;
+}
+
+.cat-label-field {
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cat-label-field input {
+  padding: 7px 10px;
+}
+
+.cat-edit-error {
+  font-size: 0.72rem;
+  color: #ef4444;
+  min-height: 0;
+}
+
+.cat-actions {
+  flex-shrink: 0;
+}
+
+.btn-save-cat {
+  padding: 6px 14px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.btn-save-cat:hover {
+  background: #4338ca;
+}
+
+.btn-save-cat:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 560px) {
+  .cat-row {
+    flex-wrap: wrap;
+  }
+
+  .cat-slug {
+    flex: 1 1 100%;
+  }
+}

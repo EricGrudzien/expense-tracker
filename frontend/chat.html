@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Tracker — Chat</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body>
+  <div class="container chat-container">
+    <header>
+      <h1>💸 Expense Tracker</h1>
+      <nav class="page-nav">
+        <a href="index.html" class="nav-tab">Reports</a>
+        <a href="query.html" class="nav-tab">Query</a>
+        <a href="categories.html" class="nav-tab">Categories</a>
+        <a href="chat.html" class="nav-tab nav-tab--active">Chat</a>
+      </nav>
+    </header>
+
+    <!-- Chat area -->
+    <section class="chat-card">
+      <div class="chat-card-header">
+        <span class="chat-card-title">Chat</span>
+        <span class="chat-mode-badge hidden" id="chat-mode-badge"></span>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <!-- messages rendered here by JS -->
+      </div>
+
+      <div class="chat-input-bar">
+        <input
+          type="text"
+          id="chat-input"
+          placeholder="Ask about your expenses…"
+          maxlength="1000"
+          autocomplete="off"
+        />
+        <button id="chat-send-btn" disabled>Send</button>
+      </div>
+      <span class="chat-input-error" id="chat-input-error"></span>
+    </section>
+  </div>
+
+  <script src="chat.js"></script>
+</body>
+</html>

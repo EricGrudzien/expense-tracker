@@ -1,0 +1,35 @@
+Generate Python code to fulfill the following request.
+
+Available libraries (pre-installed):
+- matplotlib (use Agg backend — no plt.show(), only plt.savefig())
+- numpy
+- pandas
+
+Code requirements:
+- Must be a complete, standalone, executable Python script
+- Print all text output to stdout using print()
+- For charts/plots:
+  - Always use: import matplotlib; matplotlib.use('Agg')  — BEFORE importing pyplot
+  - Save charts to /tmp/chart.png (or /tmp/<descriptive_name>.png)
+  - Use plt.savefig('/tmp/chart.png', dpi=150, bbox_inches='tight')
+  - Do NOT call plt.show() — it will fail in this environment
+  - Always call plt.close() after saving to free memory
+- Use /tmp/ for any file I/O (only writable directory)
+- Handle errors gracefully with try/except
+- Do NOT use input() or any interactive functions
+- Do NOT import os, subprocess, socket, requests, or urllib
+
+Chart style guidelines:
+- Use clear titles and axis labels
+- Use a clean color palette (e.g. tab10 or Set2)
+- Set figure background to white: fig.patch.set_facecolor('#FFFFFF')
+- Add gridlines for readability: ax.yaxis.grid(True, linestyle='--', alpha=0.7)
+- Use plt.tight_layout() before saving
+- Format dollar amounts with $ prefix and commas
+
+Rules:
+- Return ONLY the Python code, nothing else
+- No markdown code blocks, no backticks, no explanation before or after
+- The response must start with an import statement or a comment (#)
+
+Request: {{prompt}}
