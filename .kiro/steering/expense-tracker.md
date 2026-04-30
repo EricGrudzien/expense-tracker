@@ -26,6 +26,7 @@ and executing SQL queries.
 | CORS      | flask-cors 5.0.1                  |
 | Database  | SQLite (file: `backend/expenses.db`) |
 | LLM       | Amazon Bedrock (Claude Sonnet 4.5) via boto3 |
+| Charting  | Chart.js v4 (CDN, client-side rendering)  |
 | Frontend  | Vanilla JavaScript (no frameworks) |
 | Styling   | Plain CSS (no preprocessors)      |
 | Serving   | Python `http.server` on port 8080 |
@@ -615,6 +616,17 @@ when expanded.
 
 Each message is independent — no conversation history is sent to Bedrock. This keeps the
 implementation simple and avoids token cost growth. Multi-turn is a future enhancement.
+
+### 11.7 Chart rendering
+
+When the Bedrock Flow classifies a request as `CHART_REQUEST`, the flow generates a chart
+instruction JSON (chartType, title, labelField, valueField, SQL). The backend executes the
+SQL locally, calls the `egru-chart-builder` Lambda to produce a Chart.js config, and returns
+it in the `chart` field of the response. The frontend creates a `<canvas>` inside the chat
+bubble and renders the chart with `new Chart(canvas, config)`.
+
+Supported chart types: bar, line, pie, doughnut. Chart.js is loaded via CDN (`<script>` tag)
+on the chat page only.
 
 ---
 

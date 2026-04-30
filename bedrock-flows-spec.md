@@ -70,6 +70,8 @@ lambda/
   json-parser/
     lambda_function.py      # JSON parsing Lambda handler
     deploy.sh               # Zip and deploy to Lambda
+  chart-builder/
+    lambda_function.py      # Chart.js config builder Lambda handler
   prompts/
     classification.txt      # Classification prompt template
     code-generation.txt     # Code generation prompt template
@@ -147,7 +149,7 @@ Rules:
 - No bare expressions before `return`
 - No `event` dict — inputs are globals, not event fields
 
-### 4.3 Lambda response nesting
+### 4.4 Lambda response nesting
 
 Lambda nodes in Bedrock Flows wrap the function return value. If the Lambda returns:
 ```json
@@ -163,7 +165,7 @@ return {"classification": "CHART_REQUEST", "prompt": "..."}
 ```
 This places fields at `$.data.classification` where condition nodes expect them.
 
-### 4.4 Condition node JSONPath expressions
+### 4.5 Condition node JSONPath expressions
 
 Condition nodes evaluate JSONPath against the incoming data. The path is relative to the
 node input binding.
@@ -171,7 +173,7 @@ node input binding.
 **Key rule:** The Lambda return shape must match the JSONPath the condition expects. Keep
 both flat and simple.
 
-### 4.5 Library packaging — container image over Lambda layers
+### 4.6 Library packaging — container image over Lambda layers
 
 matplotlib + numpy + pandas together exceed the 250MB Lambda **total unzipped** limit.
 This limit applies to the deployment package plus all layers combined — not per-layer.
@@ -214,7 +216,7 @@ If cold starts are a concern, use
 [provisioned concurrency](https://docs.aws.amazon.com/lambda/latest/dg/provisioned-concurrency.html)
 to keep instances warm (~$0.015/hour per instance).
 
-### 4.6 Matplotlib backend
+### 4.8 Matplotlib backend
 
 Lambda has no display server. `plt.show()` will fail.
 
@@ -381,7 +383,75 @@ This supports multiple chart outputs from a single code execution.
 
 ---
 
-## 7. Prompt Templates (`lambda/prompts/`)
+## 7. Lambda: Chart Builder (`lambda/chart-builder/`)
+
+### 7.1 Purpose
+
+Takes a chart instruction object (with data) and deterministically builds a valid
+Chart.js v4 configuration. No LLM calls — pure template-based config generation.
+
+### 7.2 Deployment
+
+- **Runtime:** Python 3.12 (zip deployment, no dependencies)
+- **Memory:** 128 MB
+- **Timeout:** 10 seconds
+- **Function name:** `egru-chart-builder`
+- **ARN:** `arn:aws:lambda:us-east-1:905418197933:function:egru-chart-builder`
+
+### 7.3 Input
+
+```json
+{
+  "chartType": "bar",
+  "title": "Spending by Category",
+  "labelField": "category",
+  "valueField": "total",
+  "data": [
+    {"category": "Airline", "total": 1200},
+    {"category": "Hotel", "total": 980}
+  ]
+}
+```
+
+### 7.4 Output
+
+```json
+{
+  "chart": { <valid Chart.js v4 config> },
+  "error": null
+}
+```
+
+### 7.5 Supported chart types
+
+| Type | Builder | Features |
+|---|---|---|
+| `bar` | Vertical bars | $ prefix on y-axis, gridlines, border radius |
+| `line` | Line with markers | Fill under line, tension smoothing, point markers |
+| `pie` | Pie slices | Legend on right, white borders between slices |
+| `doughnut` | Doughnut (pie with cutout) | Same as pie |
+
+### 7.6 Color palette
+
+Fixed palette matching the app's indigo/violet design system. Cycles if more data
+points than palette entries.
+
+### 7.7 Validation
+
+Returns `{"error": "message"}` if:
+- `chartType` not in `[bar, line, pie, doughnut]`
+- `labelField` or `valueField` missing or not found in data
+- `data` empty or not a list
+- Values not numeric
+
+### 7.8 Invocation
+
+Supports both direct boto3 invoke (from the backend `build_chart()` function) and
+Bedrock Flow Lambda node format (`event["node"]["inputs"][0]["value"]`).
+
+---
+
+## 9. Prompt Templates (`lambda/prompts/`)
 
 ### 7.1 Classification (`classification.txt`)
 
@@ -419,7 +489,7 @@ Template variable: `{{prompt}}` — the user's request (cleaned by classificatio
 
 ---
 
-## 8. Condition Node Configuration
+## 9. Condition Node Configuration
 
 - **Input field:** `classification` bound to JSON parser Lambda output
 - **Conditions:**
@@ -429,14 +499,14 @@ Template variable: `{{prompt}}` — the user's request (cleaned by classificatio
 
 ---
 
-## 9. Response Handling
+## 10. Response Handling
 
-### 9.1 Text output
+### 10.1 Text output
 
 When the generated code prints to stdout, the Lambda captures it in the `output` field
 (truncated to 10KB). The flow output node passes this to the caller.
 
-### 9.2 Chart/image output
+### 10.2 Chart/image output
 
 When the generated code saves images to `/tmp/`:
 1. The Lambda scans for `*.png`, `*.jpg`, `*.jpeg`, `*.svg`
@@ -446,7 +516,7 @@ When the generated code saves images to `/tmp/`:
 
 Multiple images are supported (e.g. a script that generates 3 charts).
 
-### 9.3 Error output
+### 10.3 Error output
 
 If the code fails (non-zero exit code, timeout, or blocked pattern):
 - `success` is `false`
@@ -456,7 +526,7 @@ If the code fails (non-zero exit code, timeout, or blocked pattern):
 
 ---
 
-## 10. Cost Considerations
+## 11. Cost Considerations
 
 | Component | Config | Cost per invocation (approx.) |
 |---|---|---|
@@ -471,9 +541,9 @@ container image is ~$0.10/GB/month.
 
 ---
 
-## 11. Deployment
+## 12. Deployment
 
-### 11.1 Deployed Resources
+### 12.1 Deployed Resources
 
 | Resource | Type | ARN / URI |
 |---|---|---|
@@ -485,7 +555,7 @@ container image is ~$0.10/GB/month.
 **Account:** 123456789012
 **Region:** us-east-1
 
-### 11.2 Deployment Steps (as executed)
+### 12.2 Deployment Steps (as executed)
 
 #### Step 1: Create IAM execution role
 
@@ -582,7 +652,7 @@ aws lambda get-function --function-name bedrock-flow-code-executor \
 # → Active
 ```
 
-### 11.3 Smoke Tests
+### 12.3 Smoke Tests
 
 Tests are in `lambda/test_lambdas.py`. Run with:
 
@@ -604,7 +674,7 @@ that contain backticks and newlines.
 | Matplotlib chart | code-executor | Bar chart with `plt.savefig('/tmp/chart.png')` | `success: true`, `images: {"chart.png": "<base64>"}` |
 | Pandas + numpy | code-executor | DataFrame sum/mean/std | `success: true`, output: `"Total: $950.00\nMean: $316.67\nStd: $143.37\n"` |
 
-### 11.4 Deployment Gotcha: Docker `--provenance=false`
+### 12.4 Deployment Gotcha: Docker `--provenance=false`
 
 When building container images for Lambda on Docker Desktop (or any BuildKit-enabled
 Docker), the default build produces an OCI image index (manifest list) with provenance
@@ -621,7 +691,7 @@ docker build --platform linux/amd64 --provenance=false -t <name> .
 
 This produces a single-platform image with a standard Docker manifest that Lambda accepts.
 
-### 11.5 Deployment Gotcha: Shell escaping for Lambda test payloads
+### 12.5 Deployment Gotcha: Shell escaping for Lambda test payloads
 
 Testing Lambda functions via `aws lambda invoke` with JSON payloads that contain backticks,
 newlines, or nested quotes is error-prone due to shell escaping. The `\n` in a payload
@@ -631,7 +701,7 @@ double quotes in bash.
 **Fix:** Use a Python script with boto3 for testing instead of the AWS CLI. The
 `test_lambdas.py` script uses `json.dumps()` which handles all escaping correctly.
 
-### 11.6 Remaining: Bedrock Flow wiring
+### 12.6 Remaining: Bedrock Flow wiring
 
 The Lambdas are deployed and tested. The remaining step is to wire them into a Bedrock
 Flow in the AWS console:
@@ -649,13 +719,13 @@ Flow in the AWS console:
 
 ---
 
-## 12. Chat Backend Integration & Feature Flag
+## 13. Chat Backend Integration & Feature Flag
 
 The expense tracker's chat backend (`POST /api/chat`) supports two routing modes,
 controlled by a feature flag. This allows switching between direct Bedrock model calls
 and the Bedrock Flow without code changes.
 
-### 12.1 Feature flag
+### 13.1 Feature flag
 
 | Env Variable | Default | Description |
 |---|---|---|
@@ -674,20 +744,32 @@ python app.py
 USE_BEDROCK_FLOW=true python app.py
 ```
 
-### 12.2 Routing logic
+### 13.2 Routing logic
 
 The `POST /api/chat` endpoint checks `USE_BEDROCK_FLOW` and delegates to one of:
 
 - **`chat_via_model(message)`** — the original two-call path: generate SQL → execute
   against SQLite → format answer. Uses `bedrock-runtime` client (`converse` API).
 - **`chat_via_flow(message)`** — sends the message to the Bedrock Flow via
-  `bedrock-agent-runtime` client (`invoke_flow` API). Collects the streamed response
-  and normalizes it to the same `{answer, sql, data}` shape.
+  `bedrock-agent-runtime` client (`invoke_flow` API). Parses the structured response
+  and routes based on the `type` field.
 
 Both paths return the same JSON response structure to the frontend, so the UI works
 identically regardless of mode.
 
-### 12.3 Config endpoint
+### 13.3 Shared function: `execute_sql_and_format(sql, message)`
+
+Both `chat_via_model` and `chat_via_flow` use this shared function when SQL needs to
+be executed locally. It:
+1. Connects to `expenses.db` (read-only, 5s timeout)
+2. Executes the SQL query
+3. Calls Bedrock (`converse` API) to format the raw results as a human-readable answer
+4. Returns `{"answer": "...", "sql": "...", "data": [...]}`
+
+On SQL execution failure, returns `{"error": "...", "sql": "...", "data": null}` with
+status 400.
+
+### 13.4 Config endpoint
 
 `GET /api/chat/config` returns the current routing mode:
 ```json
@@ -701,14 +783,49 @@ or:
 The chat page frontend fetches this on load and displays a badge: "Direct Model" (purple)
 or "Bedrock Flow" (green).
 
-### 12.4 Bedrock Flow invocation
+### 13.5 Bedrock Flow invocation and response routing
 
-The `invoke_flow` API returns a streaming response. The backend iterates over the
-`responseStream` events and collects the `flowOutputEvent` document. If the flow returns
-structured JSON (with `answer`, `sql`, `data` fields), those are used directly. If it
-returns plain text, it's wrapped as `{answer: <text>, sql: null, data: null}`.
+The `invoke_flow` API returns a streaming response. `invoke_bedrock_flow()` iterates
+over the `responseStream` events, collects trace data (logged to `chat.log`), and
+extracts the `flowOutputEvent` document.
 
-### 12.5 Chat logging
+**Response parsing:** The flow output is parsed as JSON. If successful, the dict is
+returned directly. If not parseable, it's wrapped as `{"response": "<text>", "type": "text"}`.
+
+**Response routing in `chat_via_flow()`:**
+
+The flow's inline code node returns a structured object with a `type` field that
+determines how the response is handled:
+
+```
+invoke_bedrock_flow()
+    │
+    └─ returns {"response": "SELECT ...", "type": "sql_query"}
+           or  {"response": "Here is...", "type": "text"}
+
+chat_via_flow() checks type:
+    │
+    ├─ type == "sql_query"
+    │   ├─ extract SQL from response["response"]
+    │   ├─ validate_sql() — must be SELECT only
+    │   └─ execute_sql_and_format(sql, message)
+    │       ├─ execute against expenses.db
+    │       ├─ call Bedrock to format answer
+    │       └─ return {"answer", "sql", "data"}
+    │
+    └─ type == anything else
+        └─ return {"answer": response["response"], "sql": null, "data": null}
+```
+
+**Flow response types:**
+
+| `type` value | Meaning | Action taken |
+|---|---|---|
+| `sql_query` | Flow generated SQL that needs local execution | Validate → execute → format via Bedrock |
+| `text` | Flow returned a direct text answer | Pass through as the answer |
+| `chart` | Flow generated chart instruction | Execute SQL → call chart-builder Lambda → return Chart.js config |
+
+### 13.6 Chat logging
 
 All chat requests and responses are logged to `backend/chat.log` (plain text, appended).
 
@@ -741,14 +858,14 @@ Flask's application logger. The log file is created automatically on first write
 The Lambda base image includes a built-in Runtime Interface Emulator (RIE) that simulates
 the Lambda invoke API locally. No AWS credentials or deployment needed.
 
-### 12.1 Build the image
+### 14.1 Build the image
 
 ```bash
 cd lambda/code-executor
 docker build --platform linux/amd64 -t code-executor:test .
 ```
 
-### 12.2 Run the container
+### 14.2 Run the container
 
 ```bash
 docker run --platform linux/amd64 -p 9000:8080 code-executor:test
@@ -756,7 +873,7 @@ docker run --platform linux/amd64 -p 9000:8080 code-executor:test
 
 The RIE listens on `http://localhost:9000`. Leave this running.
 
-### 12.3 Test a chart generation
+### 14.3 Test a chart generation
 
 In another terminal:
 
@@ -784,7 +901,7 @@ Expected response:
 }
 ```
 
-### 12.4 Test the security scan
+### 14.4 Test the security scan
 
 ```bash
 curl -s -X POST "http://localhost:9000/2015-03-31/functions/function/invocations" \
@@ -808,7 +925,7 @@ Expected response:
 }
 ```
 
-### 12.5 Save and view a generated chart
+### 14.5 Save and view a generated chart
 
 ```bash
 curl -s -X POST "http://localhost:9000/2015-03-31/functions/function/invocations" \
@@ -834,7 +951,7 @@ else:
 
 Open `/tmp/test_chart.png` to verify the chart rendered correctly.
 
-### 12.6 Stop the container
+### 14.6 Stop the container
 
 Press `Ctrl+C` in the terminal running the container, or:
 

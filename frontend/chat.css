@@ -207,3 +207,25 @@
   min-height: 0;
   background: #f9fafb;
 }
+
+/* ── Chart in bubble ────────────────────────────────────────────────────── */
+.chat-chart-container {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  max-width: 100%;
+}
+
+.chat-chart-container canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.chat-chart-error {
+  padding: 12px;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  font-style: italic;
+}

@@ -30,12 +30,19 @@ function addUserBubble(text) {
   scrollToBottom();
 }
 
-function addAssistantBubble(answer, sql) {
+function addAssistantBubble(answer, sql, chartConfig) {
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble chat-bubble--assistant";
 
   let html = escapeHtml(answer);
 
+  // Chart canvas
+  if (chartConfig) {
+    const canvasId = "chart-" + Date.now();
+    html += `<div class="chat-chart-container"><canvas id="${canvasId}"></canvas></div>`;
+  }
+
+  // SQL toggle
   if (sql) {
     const toggleId = "sql-toggle-" + Date.now();
     const blockId  = "sql-block-" + Date.now();
@@ -47,6 +54,18 @@ function addAssistantBubble(answer, sql) {
 
   bubble.innerHTML = html;
   messagesEl.appendChild(bubble);
+
+  // Render chart
+  if (chartConfig) {
+    const canvas = bubble.querySelector("canvas");
+    if (canvas) {
+      try {
+        new Chart(canvas.getContext("2d"), chartConfig);
+      } catch (e) {
+        canvas.parentElement.innerHTML = `<div class="chat-chart-error">Chart rendering failed</div>`;
+      }
+    }
+  }
 
   // Wire SQL toggle
   if (sql) {
@@ -117,7 +136,7 @@ async function sendMessage() {
     if (!res.ok) {
       addErrorBubble(data.error || "Something went wrong");
     } else {
-      addAssistantBubble(data.answer, data.sql);
+      addAssistantBubble(data.answer, data.sql, data.chart || null);
     }
   } catch (err) {
     removeLoadingBubble();
@@ -173,7 +192,9 @@ addAssistantBubble(
   "Ask me anything about your expenses — for example:\n" +
   "• \"What's my total spending?\"\n" +
   "• \"Show all airline costs\"\n" +
+  "• \"Show me a bar chart of spending by category\"\n" +
   "• \"How much did I spend in April 2026?\"",
+  null,
   null
 );
 

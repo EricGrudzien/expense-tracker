@@ -660,7 +660,90 @@ def invoke_bedrock_flow(system_prompt, user_message, mode):
 
     chat_logger.info(f"FLOW RESULT | nodes_traced={len(traces)} | output_length={len(result_text) if result_text else 0}")
 
-    return result_text
+    # Parse the output into a dict if possible
+    if result_text is None:
+        return None
+
+    # Try to parse as JSON object (e.g. {"response": "...", "type": "sql_query"})
+    try:
+        parsed = json.loads(result_text)
+        if isinstance(parsed, dict):
+            chat_logger.info(f"FLOW PARSED | type={parsed.get('type')} | keys={list(parsed.keys())}")
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Return raw string wrapped in a dict
+    return {"response": result_text, "type": "text"}
+
+
+def execute_sql_and_format(sql, message):
+    """Execute a SQL query against expenses.db and format the results via Bedrock."""
+    try:
+        read_conn = sqlite3.connect(DB_PATH, timeout=5)
+        read_conn.row_factory = sqlite3.Row
+        rows = read_conn.execute(sql).fetchall()
+        results = [dict(r) for r in rows]
+        read_conn.close()
+    except Exception as sql_err:
+        return {"error": f"Query execution failed: {sql_err}", "sql": sql, "data": None}, 400
+
+    format_prompt = (
+        "You are a helpful assistant. The user asked a question about their expenses. "
+        "A SQL query was run and produced the results below. "
+        "Format the results as a clear, concise answer to the user's question. "
+        "Use dollar formatting for monetary amounts (e.g. $1,234.56). "
+        "Do not include the SQL in your answer. "
+        "If the result set is empty, say so clearly."
+    )
+    format_message = (
+        f"User question: {message}\n\n"
+        f"SQL executed: {sql}\n\n"
+        f"Results ({len(results)} rows):\n{json.dumps(results, default=str, indent=2)}"
+    )
+    answer = call_bedrock(format_prompt, format_message)
+
+    return {"answer": answer, "sql": sql, "data": results}
+
+
+CHART_BUILDER_LAMBDA = os.environ.get("CHART_BUILDER_LAMBDA", "egru-chart-builder")
+
+
+def build_chart(instruction, data):
+    """
+    Call the chart-builder Lambda to produce a Chart.js config.
+
+    Args:
+        instruction: dict with chartType, title, labelField, valueField
+        data: list of dicts (query results)
+
+    Returns:
+        Chart.js config dict, or None on error.
+    """
+    payload = {
+        "chartType": instruction.get("chartType", "bar"),
+        "title": instruction.get("title", "Chart"),
+        "labelField": instruction.get("labelField", ""),
+        "valueField": instruction.get("valueField", ""),
+        "data": data,
+    }
+
+    try:
+        lambda_client = boto3.client("lambda", region_name=BEDROCK_REGION)
+        resp = lambda_client.invoke(
+            FunctionName=CHART_BUILDER_LAMBDA,
+            Payload=json.dumps(payload).encode(),
+        )
+        result = json.loads(resp["Payload"].read())
+
+        if result.get("error"):
+            chat_logger.info(f"CHART BUILD ERROR | {result['error']}")
+            return None
+
+        return result.get("chart")
+    except Exception as e:
+        chat_logger.info(f"CHART BUILD EXCEPTION | {e}")
+        return None
 
 
 def chat_via_model(message, mode):
@@ -679,55 +762,72 @@ def chat_via_model(message, mode):
         if err:
             return {"error": f"Generated query was rejected: {err}"}, 400
 
+        return execute_sql_and_format(sql, message)
+
+
+def chat_via_flow(message, mode):
+    """Bedrock Flow path: build the same system prompt, send to the flow, route on response type."""
+    with get_db() as conn:
+        system_prompt = build_chat_system_prompt(conn)
+
+    result = invoke_bedrock_flow(system_prompt, message, mode)
+
+    if result is None:
+        return {"error": "No response received from Bedrock Flow"}, 500
+
+    response_type = result.get("type", "text")
+    chat_logger.info(f"FLOW ROUTE | type={response_type}")
+
+    if response_type == "sql_query":
+        # Flow returned SQL — validate and execute locally
+        sql = result.get("response") or result.get("res", "")
+        sql = sql.strip()
+
+        if not sql:
+            return {"error": "Flow returned sql_query type but no SQL", "sql": None, "data": None}, 400
+
+        err = validate_sql(sql)
+        if err:
+            return {"error": f"Flow-generated query was rejected: {err}", "sql": sql, "data": None}, 400
+
+        return execute_sql_and_format(sql, message)
+
+    elif response_type == "chart":
+        # Flow returned a chart instruction — execute SQL, then build chart config
+        sql = result.get("sql", "").strip()
+
+        if not sql:
+            return {"error": "Flow returned chart type but no SQL", "sql": None, "data": None}, 400
+
+        err = validate_sql(sql)
+        if err:
+            return {"error": f"Chart query was rejected: {err}", "sql": sql, "data": None}, 400
+
+        # Execute the SQL to get the data
         try:
             read_conn = sqlite3.connect(DB_PATH, timeout=5)
             read_conn.row_factory = sqlite3.Row
             rows = read_conn.execute(sql).fetchall()
-            results = [dict(r) for r in rows]
+            data = [dict(r) for r in rows]
             read_conn.close()
         except Exception as sql_err:
-            return {"error": f"Query execution failed: {sql_err}", "sql": sql, "data": None}, 400
+            return {"error": f"Chart query failed: {sql_err}", "sql": sql, "data": None}, 400
 
-        format_prompt = (
-            "You are a helpful assistant. The user asked a question about their expenses. "
-            "A SQL query was run and produced the results below. "
-            "Format the results as a clear, concise answer to the user's question. "
-            "Use dollar formatting for monetary amounts (e.g. $1,234.56). "
-            "Do not include the SQL in your answer. "
-            "If the result set is empty, say so clearly."
-        )
-        format_message = (
-            f"User question: {message}\n\n"
-            f"SQL executed: {sql}\n\n"
-            f"Results ({len(results)} rows):\n{json.dumps(results, default=str, indent=2)}"
-        )
-        answer = call_bedrock(format_prompt, format_message)
+        if not data:
+            return {"answer": "No data found for the requested chart.", "chart": None, "sql": sql, "data": []}
 
-        return {"answer": answer, "sql": sql, "data": results}
+        # Build the Chart.js config via Lambda
+        chart_config = build_chart(result, data)
 
+        title = result.get("title", "Chart")
+        answer = f"Here's your chart: {title}"
 
-def chat_via_flow(message, mode):
-    """Bedrock Flow path: build the same system prompt, send to the flow."""
-    with get_db() as conn:
-        system_prompt = build_chat_system_prompt(conn)
+        return {"answer": answer, "chart": chart_config, "sql": sql, "data": data}
 
-    result_text = invoke_bedrock_flow(system_prompt, message, mode)
-
-    if result_text is None:
-        return {"error": "No response received from Bedrock Flow"}, 500
-
-    try:
-        parsed = json.loads(result_text)
-        if isinstance(parsed, dict):
-            return {
-                "answer": parsed.get("answer") or parsed.get("output") or result_text,
-                "sql": parsed.get("sql"),
-                "data": parsed.get("data"),
-            }
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    return {"answer": result_text, "sql": None, "data": None}
+    else:
+        # Flow returned a direct answer (text, etc.)
+        answer = result.get("response") or result.get("answer") or result.get("output") or str(result)
+        return {"answer": answer, "sql": None, "data": None}
 
 
 @app.route("/api/chat", methods=["POST"])

@@ -71,7 +71,7 @@
         "inputs": [
           {
             "name": "document",
-            "type": "String",
+            "type": "Object",
             "expression": "$.data"
           }
         ]
@@ -195,7 +195,7 @@
                 "templateType": "TEXT",
                 "templateConfiguration": {
                   "text": {
-                    "text": "Generate Python code to fulfill the following request.\nAvailable libraries (pre-installed):\n- matplotlib (use Agg backend \u2014 no plt.show(), only plt.savefig())\n- numpy\n- pandas\nCode requirements:\n- Must be a complete, standalone, executable Python script\n- Print all text output to stdout using print()\n- For charts/plots:\n- Always use: import matplotlib; matplotlib.use('Agg')  \u2014 BEFORE importing pyplot\n- Save charts to /tmp/chart.png (or /tmp/<descriptive_name>.png)\n- Use plt.savefig('/tmp/chart.png', dpi=150, bbox_inches='tight')\n- Do NOT call plt.show() \u2014 it will fail in this environment\n- Always call plt.close() after saving to free memory\n- Use /tmp/ for any file I/O (only writable directory)\n- Handle errors gracefully with try/except\n- Do NOT use input() or any interactive functions\n- Do NOT import os, subprocess, socket, requests, or urllib\nChart style guidelines:\n- Use clear titles and axis labels\n- Use a clean color palette (e.g. tab10 or Set2)\n- Set figure background to white: fig.patch.set_facecolor('#FFFFFF')\n- Add gridlines for readability: ax.yaxis.grid(True, linestyle='--', alpha=0.7)\n- Use plt.tight_layout() before saving\n- Format dollar amounts with $ prefix and commas\nRules:\n- Return ONLY the Python code, nothing else\n- No markdown code blocks, no backticks, no explanation before or after\n- The response must start with an import statement or a comment (#)\n\nRequest:{{code_prompt}}",
+                    "text": "You are analyzing expense data stored in a SQLite database.\nThe user wants a chart visualization.\n\nDatabase schema:\n- categories: slug (TEXT PK), display_label (TEXT), icon (TEXT)\n- expense_reports: id (INTEGER PK), description (TEXT), date (TEXT 'YYYY-MM-DD')\n- sub_expenses: id (INTEGER PK), report_id (FK to expense_reports), category (TEXT, matches categories.slug), note (TEXT), amount (REAL > 0)\n- Report totals are derived: SUM(sub_expenses.amount) grouped by report_id\n\nGenerate a JSON object with these exact fields:\n- \"chartType\": one of \"bar\", \"line\", \"pie\", \"doughnut\"\n- \"title\": a descriptive chart title\n- \"labelField\": the column name in the SQL results to use for labels\n- \"valueField\": the column name in the SQL results to use for values\n- \"sql\": a SQLite SELECT query to fetch the data (must be SELECT only)\n\nRules:\n- Return ONLY the JSON object, nothing else\n- No markdown, no code blocks, no backticks, no explanation\n- Response must start with { and end with }\n- The SQL must use SUM, COUNT, or GROUP BY as needed for aggregation\n- Use category slugs (e.g. 'airline') not display labels\n\nUser request: {{code_prompt}}",
                     "inputVariables": [
                       {
                         "name": "code_prompt"
@@ -207,7 +207,7 @@
                 "inferenceConfiguration": {
                   "text": {
                     "temperature": 0.18000000715255737,
-                    "maxTokens": 1000,
+                    "maxTokens": 500,
                     "stopSequences": [
                       "\n\nHuman:"
                     ]
@@ -240,6 +240,29 @@
         "configuration": {
           "inlineCode": {
             "code": "import re\n\ndef __func():\n    text = variable\n    cleaned = re.sub(r'^```(?:sql)?\\s*\\n?', '', text.strip())\n    cleaned = re.sub(r'\\n?```\\s*$', '', cleaned)\n    return {\"response\": cleaned, \"type\": \"sql_query\"}\n\n__func()\n",
+            "language": "Python_3"
+          }
+        },
+        "inputs": [
+          {
+            "name": "variable",
+            "type": "String",
+            "expression": "$.data"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "response",
+            "type": "Object"
+          }
+        ]
+      },
+      {
+        "name": "InlineCode_Transform_Chart",
+        "type": "InlineCode",
+        "configuration": {
+          "inlineCode": {
+            "code": "import re\nimport json\n\ndef __func():\n    text = variable\n    cleaned = re.sub(r'^```(?:json)?\\s*\\n?', '', text.strip())\n    cleaned = re.sub(r'\\n?```\\s*$', '', cleaned)\n    parsed = json.loads(cleaned)\n    parsed[\"type\"] = \"chart\"\n    return parsed\n\n__func()\n",
             "language": "Python_3"
           }
         },
@@ -292,18 +315,6 @@
           "data": {
             "sourceOutput": "functionResponse",
             "targetInput": "classification"
-          }
-        }
-      },
-      {
-        "type": "Data",
-        "name": "Prompt_ChartPromptsNode0ToFlowOutput_ChartFlowOutputNode0",
-        "source": "Prompt_Chart",
-        "target": "FlowOutput_Chart",
-        "configuration": {
-          "data": {
-            "sourceOutput": "modelCompletion",
-            "targetInput": "document"
           }
         }
       },
@@ -370,6 +381,30 @@
         "name": "InlineCode_Transform_DataInlineCodeNode0ToFlowOutput_DataFlowOutputNode0",
         "source": "InlineCode_Transform_Data",
         "target": "FlowOutput_Data",
+        "configuration": {
+          "data": {
+            "sourceOutput": "response",
+            "targetInput": "document"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "Prompt_ChartToInlineCode_Transform_Chart",
+        "source": "Prompt_Chart",
+        "target": "InlineCode_Transform_Chart",
+        "configuration": {
+          "data": {
+            "sourceOutput": "modelCompletion",
+            "targetInput": "variable"
+          }
+        }
+      },
+      {
+        "type": "Data",
+        "name": "InlineCode_Transform_ChartToFlowOutput_Chart",
+        "source": "InlineCode_Transform_Chart",
+        "target": "FlowOutput_Chart",
         "configuration": {
           "data": {
             "sourceOutput": "response",
